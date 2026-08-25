@@ -1,74 +1,82 @@
-#ifndef COMPLEX_MATRIX_HPP
-#define COMPLEX_MATRIX_HPP
+#ifndef WAVE_OPTIMIZER_HPP
+#define WAVE_OPTIMIZER_HPP
 
-#include <complex>
 #include <vector>
 #include <cmath>
-#include <random>
 #include <algorithm>
+#include "wave_engine.hpp"
+#include "complex_matrix.hpp"
 
 namespace MathCore {
 
-constexpr double PI = 3.14159265358979323846;
-
-using Complex = std::complex<double>;
-
-struct WaveVector {
-    Complex amplitude;
-    double phase;
-    
-    WaveVector() : amplitude(0.0, 0.0), phase(0.0) {}
-    WaveVector(Complex a, double p) : amplitude(a), phase(p) {}
-    
-    double magnitude() const {
-        return std::abs(amplitude);
-    }
-    
-    WaveVector interfere(const WaveVector& other) const {
-        Complex shifted = other.amplitude * std::polar(1.0, other.phase - phase);
-        Complex result = amplitude + shifted;
-        return WaveVector(result, std::arg(result));
-    }
-    
-    void normalize() {
-        double mag = magnitude();
-        if (mag > 1e-10) {
-            amplitude /= mag;
-        }
-    }
-};
-
-class ComplexMatrix {
+class WaveOptimizer {
 public:
-    std::vector<std::vector<WaveVector>> data;
-    size_t rows, cols;
-    
-    ComplexMatrix(size_t r, size_t c) : rows(r), cols(c) {
-        data.resize(r, std::vector<WaveVector>(c));
+    // Безопасный Softmax с защитой от переполнения
+    static std::vector<double> softmax(const std::vector<MathCore::WaveEngine::TokenWave>& states) {
+        if (states.empty()) return {};
+
+        std::vector<double> expValues;
+        expValues.reserve(states.size());
+
+        double maxVal = states[0].state.magnitude();
+        for (const auto& token : states) {
+            double mag = token.state.magnitude();
+            if (mag > maxVal) maxVal = mag;
+        }
+
+        double sumExp = 0.0;
+        for (const auto& token : states) {
+            double val = std::exp(token.state.magnitude() - maxVal);
+            expValues.push_back(val);
+            sumExp += val;
+        }
+
+        for (auto& val : expValues) {
+            val /= (sumExp > 0.0 ? sumExp : 1.0);
+        }
+
+        return expValues;
     }
-    
-    void randomize(double scale = 0.1) {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::normal_distribution<double> dist(0.0, scale);
+
+    // Обновление матрицы взаимодействия с учетом структуры WaveVector и std::complex
+    void updateMatrix(MathCore::ComplexMatrix& matrix, 
+                      const std::vector<MathCore::WaveEngine::TokenWave>& states, 
+                      int predicted, 
+                      int target) {
         
-        for (auto& row : data) {
-            for (auto& cell : row) {
-                cell.amplitude = Complex(dist(gen), dist(gen));
-                cell.phase = dist(gen) * 2.0 * PI;
+        double learningRate = 0.01;
+        
+        // Поля rows и cols публичные в ComplexMatrix
+        size_t r = matrix.rows;
+        size_t c = matrix.cols;
+
+        for (size_t i = 0; i < r; ++i) {
+            for (size_t j = 0; j < c; ++j) {
+                auto& cell = matrix.at(i, j);
+                double currentReal = cell.amplitude.real();
+                double currentImag = cell.amplitude.imag();
+
+                if (predicted != target) {
+                    // Корректируем комплексную амплитуду при ошибке
+                    cell.amplitude = Complex(currentReal - learningRate * 0.1, currentImag - learningRate * 0.1);
+                } else {
+                    // Усиливаем резонанс при совпадении
+                    cell.amplitude = Complex(currentReal + learningRate * 0.05, currentImag);
+                }
             }
         }
     }
-    
-    WaveVector& at(size_t i, size_t j) {
-        return data[i][j];
-    }
-    
-    const WaveVector& at(size_t i, size_t j) const {
-        return data[i][j];
+
+    // Предсказание следующего токена
+    int predictNextGreedy(const MathCore::WaveEngine& engine) {
+        if (engine.tokens.empty()) return -1;
+        
+        auto probs = softmax(engine.tokens);
+        auto maxIt = std::max_element(probs.begin(), probs.end());
+        return static_cast<int>(std::distance(probs.begin(), maxIt));
     }
 };
 
 } // namespace MathCore
 
-#endif
+#endif // WAVE_OPTIMIZER_HPP
