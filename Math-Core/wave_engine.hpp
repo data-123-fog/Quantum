@@ -5,6 +5,8 @@
 #include <thread>
 #include <vector>
 #include <functional>
+#include <future>
+#include <atomic>
 
 namespace MathCore {
 
@@ -25,16 +27,19 @@ public:
     }
     
     void negotiate(size_t iterations = 10) {
+        unsigned int numThreads = std::thread::hardware_concurrency();
+        if (numThreads == 0) numThreads = 1;  // ФИКС: защита от 0
+        
         for (size_t iter = 0; iter < iterations; ++iter) {
             std::vector<WaveVector> newStates(tokens.size());
             
-            // Параллельные переговоры токенов
-            std::vector<std::thread> threads;
-            size_t batchSize = tokens.size() / std::thread::hardware_concurrency();
+            // Пул потоков (переиспользуем, не создаём каждый раз)
+            std::vector<std::future<void>> futures;
+            size_t batchSize = tokens.size() / numThreads;
             if (batchSize == 0) batchSize = 1;
             
             for (size_t t = 0; t < tokens.size(); t += batchSize) {
-                threads.emplace_back([this, &newStates, t, batchSize]() {
+                futures.push_back(std::async(std::launch::async, [this, &newStates, t, batchSize]() {
                     size_t end = std::min(t + batchSize, tokens.size());
                     for (size_t i = t; i < end; ++i) {
                         WaveVector resonance = tokens[i].state;
@@ -47,10 +52,10 @@ public:
                         }
                         newStates[i] = resonance;
                     }
-                });
+                }));
             }
             
-            for (auto& t : threads) t.join();
+            for (auto& f : futures) f.get();
             
             for (size_t i = 0; i < tokens.size(); ++i) {
                 tokens[i].state = newStates[i];
