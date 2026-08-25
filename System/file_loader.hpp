@@ -20,7 +20,7 @@ public:
         std::vector<SourceFile> files;
         
         if (!std::filesystem::exists(dirPath)) {
-            std::cerr << "Directory not found: " << dirPath << std::endl;
+            std::cerr << "[ERROR] Directory not found: " << dirPath << std::endl;
             return files;
         }
         
@@ -45,7 +45,7 @@ private:
     std::string readFile(const std::string& path) {
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open()) {
-            std::cerr << "Cannot open file: " << path << std::endl;
+            std::cerr << "[ERROR] Cannot open file: " << path << std::endl;
             return "";
         }
         
