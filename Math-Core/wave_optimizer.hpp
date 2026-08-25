@@ -11,14 +11,23 @@ namespace MathCore {
 
 class WaveOptimizer {
 public:
-    // Вычисление вероятностей через Softmax на основе амплитуд токенов
+    // Безопасный Softmax с защитой от переполнения (Numerical Stability)
     static std::vector<double> softmax(const std::vector<MathCore::WaveEngine::TokenWave>& states) {
-        std::vector<double> expValues;
-        double sumExp = 0.0;
+        if (states.empty()) return {};
 
+        std::vector<double> expValues;
+        expValues.reserve(states.size());
+
+        // Находим максимум для стабилизации экспоненты
+        double maxVal = states[0].state.magnitude();
         for (const auto& token : states) {
-            // Берем модуль (амплитуду) комплексного состояния токена
-            double val = std::exp(token.state.magnitude());
+            double mag = token.state.magnitude();
+            if (mag > maxVal) maxVal = mag;
+        }
+
+        double sumExp = 0.0;
+        for (const auto& token : states) {
+            double val = std::exp(token.state.magnitude() - maxVal);
             expValues.push_back(val);
             sumExp += val;
         }
@@ -30,34 +39,37 @@ public:
         return expValues;
     }
 
-    // Обновление матрицы взаимодействия (обучение)
+    // Обновление матрицы взаимодействия с защитой границ
     void updateMatrix(MathCore::ComplexMatrix& matrix, 
                       const std::vector<MathCore::WaveEngine::TokenWave>& states, 
                       int predicted, 
                       int target) {
         
         float learningRate = 0.01f;
-        size_t numStates = states.size();
+        
+        // Ограничиваем циклы реальным размером матрицы, чтобы не вылететь за границы памяти
+        size_t rows = matrix.rows();
+        size_t cols = matrix.cols();
 
-        for (size_t i = 0; i < numStates; ++i) {
-            for (size_t j = 0; j < numStates; ++j) {
+        for (size_t i = 0; i < rows; ++i) {
+            for (size_t j = 0; j < cols; ++j) {
                 if (predicted != target) {
-                    // Корректируем фазу и амплитуду при ошибке
                     matrix.at(i, j).real -= learningRate * 0.1f;
                     matrix.at(i, j).imag -= learningRate * 0.1f;
                 } else {
-                    // Усиливаем резонанс при совпадении
                     matrix.at(i, j).real += learningRate * 0.05f;
                 }
             }
         }
     }
 
-    // Предсказание следующего токена (Жадный выбор)
+    // Предсказание следующего токена
     int predictNextGreedy(const MathCore::WaveEngine& engine) {
+        if (engine.tokens.empty()) return -1;
+        
         auto probs = softmax(engine.tokens);
         auto maxIt = std::max_element(probs.begin(), probs.end());
-        return std::distance(probs.begin(), maxIt);
+        return static_cast<int>(std::distance(probs.begin(), maxIt));
     }
 };
 
