@@ -16,10 +16,12 @@ public:
     }
     
     static WaveVector relu(const WaveVector& v) {
-        if (v.magnitude() < 0) {
-            return WaveVector();
-        }
-        return v;
+    double re = v.amplitude.real();
+    if (re < 0) {
+        Complex clipped(0.0, v.amplitude.imag());
+        return WaveVector(clipped, v.phase);
+    }
+    return v;
     }
     
     static WaveVector tanh_wave(const WaveVector& v) {
