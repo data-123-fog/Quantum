@@ -1,104 +1,66 @@
 #ifndef WAVE_OPTIMIZER_HPP
 #define WAVE_OPTIMIZER_HPP
 
-#include "complex_matrix.hpp"
-#include "wave_engine.hpp"
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include "wave_engine.hpp"
+#include "complex_matrix.hpp"
 
 namespace MathCore {
 
 class WaveOptimizer {
 public:
-    double learningRate;
-    
-    explicit WaveOptimizer(double lr = 0.02) : learningRate(lr) {}
-    
-    static double cosineSim(const WaveVector& a, const WaveVector& b) {
-        double magA = a.magnitude();
-        double magB = b.magnitude();
-        if (magA < 1e-10 || magB < 1e-10) return 0.0;
-        
-        double dot = a.amplitude.real() * b.amplitude.real() +
-                     a.amplitude.imag() * b.amplitude.imag();
-        return dot / (magA * magB);
-    }
-    
-    static std::vector<double> softmax(const std::vector<WaveVector>& states) {
-        std::vector<double> probs(states.size());
-        double maxVal = -1e10;
-        
-        for (const auto& s : states) {
-            maxVal = std::max(maxVal, s.magnitude());
+    // Вычисление вероятностей через Softmax на основе амплитуд токенов
+    static std::vector<double> softmax(const std::vector<MathCore::WaveEngine::TokenWave>& states) {
+        std::vector<double> expValues;
+        double sumExp = 0.0;
+
+        for (const auto& token : states) {
+            // Берем модуль (амплитуду) комплексного состояния токена
+            double val = std::exp(token.state.magnitude());
+            expValues.push_back(val);
+            sumExp += val;
         }
-        
-        double sum = 0.0;
-        for (size_t i = 0; i < states.size(); ++i) {
-            probs[i] = std::exp(states[i].magnitude() - maxVal);
-            sum += probs[i];
+
+        for (auto& val : expValues) {
+            val /= (sumExp > 0.0 ? sumExp : 1.0);
         }
-        
-        if (sum < 1e-10) sum = 1e-10;
-        for (auto& p : probs) p /= sum;
-        return probs;
+
+        return expValues;
     }
-    
-    double computeLoss(int predictedId, int targetId, const std::vector<double>& probs) {
-        if (targetId < 0 || targetId >= static_cast<int>(probs.size())) return 0.0;
-        double p = probs[targetId];
-        if (p < 1e-10) p = 1e-10;
-        return -std::log(p);
-    }
-    
-    void updateMatrix(ComplexMatrix& matrix,
-                      const std::vector<TokenWave>& states,
-                      int predictedId,
-                      int targetId) {
+
+    // Обновление матрицы взаимодействия (обучение)
+    void updateMatrix(MathCore::ComplexMatrix& matrix, 
+                      const std::vector<MathCore::WaveEngine::TokenWave>& states, 
+                      int predicted, 
+                      int target) {
         
-        if (predictedId == targetId) return;
-        
-        for (size_t i = 0; i < states.size(); ++i) {
-            double grad = (i == static_cast<size_t>(targetId)) ? learningRate : -learningRate * 0.1;
-            
-            for (size_t j = 0; j < states.size(); ++j) {
-                if (i == j) continue;
-                
-                Complex& cell = matrix.at(i, j).amplitude;
-                cell += Complex(grad * 0.1, 0.0);
-                
-                double maxVal = 2.0;
-                if (std::abs(cell.real()) > maxVal) cell.real(maxVal * (cell.real() > 0 ? 1 : -1));
-                if (std::abs(cell.imag()) > maxVal) cell.imag(maxVal * (cell.imag() > 0 ? 1 : -1));
+        float learningRate = 0.01f;
+        size_t numStates = states.size();
+
+        for (size_t i = 0; i < numStates; ++i) {
+            for (size_t j = 0; j < numStates; ++j) {
+                if (predicted != target) {
+                    // Корректируем фазу и амплитуду при ошибке
+                    matrix.at(i, j).real -= learningRate * 0.1f;
+                    matrix.at(i, j).imag -= learningRate * 0.1f;
+                } else {
+                    // Усиливаем резонанс при совпадении
+                    matrix.at(i, j).real += learningRate * 0.05f;
+                }
             }
         }
     }
-    
-    int predictNext(const WaveEngine& engine) {
+
+    // Предсказание следующего токена (Жадный выбор)
+    int predictNextGreedy(const MathCore::WaveEngine& engine) {
         auto probs = softmax(engine.tokens);
-        
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::discrete_distribution<> dist(probs.begin(), probs.end());
-        
-        return dist(gen);
-    }
-    
-    int predictNextGreedy(const WaveEngine& engine) {
-        auto probs = softmax(engine.tokens);
-        int bestIdx = 0;
-        double bestProb = probs[0];
-        
-        for (size_t i = 1; i < probs.size(); ++i) {
-            if (probs[i] > bestProb) {
-                bestProb = probs[i];
-                bestIdx = static_cast<int>(i);
-            }
-        }
-        return bestIdx;
+        auto maxIt = std::max_element(probs.begin(), probs.end());
+        return std::distance(probs.begin(), maxIt);
     }
 };
 
 } // namespace MathCore
 
-#endif
+#endif // WAVE_OPTIMIZER_HPP
