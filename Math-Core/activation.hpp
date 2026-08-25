@@ -11,28 +11,22 @@ public:
     static WaveVector sigmoid(const WaveVector& v) {
         double mag = v.magnitude();
         double activated = 1.0 / (1.0 + std::exp(-mag));
-        Complex newAmp = v.amplitude * (activated / (mag + 1e-10));
+        if (mag < 1e-10) return WaveVector(Complex(activated, 0.0), v.phase);
+        Complex newAmp = v.amplitude * (activated / mag);
         return WaveVector(newAmp, v.phase);
     }
     
     static WaveVector relu(const WaveVector& v) {
-    double re = v.amplitude.real();
-    if (re < 0) {
-        Complex clipped(0.0, v.amplitude.imag());
-        return WaveVector(clipped, v.phase);
-    }
-    return v;
+        if (v.magnitude() < 0) return WaveVector();
+        return v;
     }
     
-    static WaveVector tanh_wave(const WaveVector& v) {
+    static WaveVector tanhWave(const WaveVector& v) {
         double mag = v.magnitude();
         double activated = std::tanh(mag);
-        Complex newAmp = v.amplitude * (activated / (mag + 1e-10));
+        if (mag < 1e-10) return WaveVector(Complex(activated, 0.0), v.phase);
+        Complex newAmp = v.amplitude * (activated / mag);
         return WaveVector(newAmp, v.phase);
-    }
-    
-    static WaveVector phaseShift(const WaveVector& v, double shift) {
-        return WaveVector(v.amplitude, v.phase + shift);
     }
 };
 
