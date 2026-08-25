@@ -9,17 +9,17 @@
 namespace Tokenizer {
 
 enum class TokenType {
-    KEYWORD,      // int, float, class, if, else, for, while, return, etc.
-    IDENTIFIER,   // variable names, function names
-    OPERATOR,     // +, -, *, /, =, ==, !=, <, >, <=, >=, &&, ||, !, ++, --, etc.
-    DELIMITER,    // ;, ,, ., ->, ::
-    BRACKET_OPEN, // (, [, {
-    BRACKET_CLOSE,// ), ], }
-    NUMBER,       // 123, 3.14, 0xFF
-    STRING,       // "hello", 'c'
-    COMMENT,      // //, /* */
-    PREPROCESSOR, // #include, #define, etc.
-    WHITESPACE,   // spaces, tabs, newlines
+    KEYWORD,       // int, float, class, if, else, for, while, return, etc.
+    IDENTIFIER,    // variable names, function names
+    OPERATOR,      // +, -, *, /, =, ==, !=, <, >, <=, >=, &&, ||, !, ++, --, etc.
+    DELIMITER,     // ;, ,, ., ->, ::
+    BRACKET_OPEN,  // (, [, {
+    BRACKET_CLOSE, // ), ], }
+    NUMBER,        // 123, 3.14, 0xFF
+    STRING,        // "hello", 'c'
+    COMMENT,       // //, /* */
+    PREPROCESSOR,  // #include, #define, etc.
+    WHITESPACE,    // spaces, tabs, newlines
     UNKNOWN
 };
 
@@ -28,8 +28,8 @@ struct Token {
     std::string value;
     size_t line;
     size_t column;
-    
-    Token(TokenType t, const std::string& v, size_t l, size_t c) 
+
+    Token(TokenType t, const std::string& v, size_t l, size_t c)
         : type(t), value(v), line(l), column(c) {}
 };
 
@@ -40,10 +40,11 @@ public:
         size_t i = 0;
         size_t line = 1;
         size_t column = 1;
-        
+
         while (i < source.length()) {
+
             // Skip whitespace but track position
-            if (std::isspace(source[i])) {
+            if (std::isspace(static_cast<unsigned char>(source[i]))) {
                 if (source[i] == '\n') {
                     line++;
                     column = 1;
@@ -53,22 +54,26 @@ public:
                 i++;
                 continue;
             }
-            
+
             // Comments
             if (source[i] == '/' && i + 1 < source.length()) {
                 if (source[i + 1] == '/') {
                     // Single line comment
                     size_t start = i;
+                    size_t startLine = line;
+                    size_t startColumn = column; // ФИКС: запоминаем стартовую позицию
                     while (i < source.length() && source[i] != '\n') {
                         i++;
                         column++;
                     }
-                    tokens.emplace_back(TokenType::COMMENT, source.substr(start, i - start), line, column);
+                    tokens.emplace_back(TokenType::COMMENT, source.substr(start, i - start), startLine, startColumn);
                     continue;
                 }
                 if (source[i + 1] == '*') {
                     // Multi-line comment
                     size_t start = i;
+                    size_t startLine = line;
+                    size_t startColumn = column; // ФИКС
                     i += 2;
                     column += 2;
                     while (i + 1 < source.length() && !(source[i] == '*' && source[i + 1] == '/')) {
@@ -82,56 +87,70 @@ public:
                     }
                     i += 2;
                     column += 2;
-                    tokens.emplace_back(TokenType::COMMENT, source.substr(start, i - start), line, column);
+                    tokens.emplace_back(TokenType::COMMENT, source.substr(start, i - start), startLine, startColumn);
                     continue;
                 }
             }
-            
+
             // Preprocessor
             if (source[i] == '#') {
                 size_t start = i;
+                size_t startColumn = column; // ФИКС
                 while (i < source.length() && source[i] != '\n') {
                     i++;
                     column++;
                 }
-                tokens.emplace_back(TokenType::PREPROCESSOR, source.substr(start, i - start), line, column);
+                tokens.emplace_back(TokenType::PREPROCESSOR, source.substr(start, i - start), line, startColumn);
                 continue;
             }
-            
+
             // Strings
             if (source[i] == '"' || source[i] == '\'') {
                 char quote = source[i];
                 size_t start = i;
+                size_t startColumn = column; // ФИКС
                 i++;
                 column++;
                 while (i < source.length() && source[i] != quote) {
-                    if (source[i] == '\\') {
+                    if (source[i] == '\\' && i + 1 < source.length()) {
                         i++;
                         column++;
                     }
                     i++;
                     column++;
                 }
-                i++; // closing quote
-                column++;
-                tokens.emplace_back(TokenType::STRING, source.substr(start, i - start), line, column);
+                if (i < source.length()) {
+                    i++; // closing quote
+                    column++;
+                }
+                tokens.emplace_back(TokenType::STRING, source.substr(start, i - start), line, startColumn);
                 continue;
             }
-            
-            // Numbers
-            if (std::isdigit(source[i]) || (source[i] == '.' && i + 1 < source.length() && std::isdigit(source[i + 1]))) {
+
+            // Numbers (включая hex: 0xFF, 0X1A3)
+            if (std::isdigit(static_cast<unsigned char>(source[i])) ||
+                (source[i] == '.' && i + 1 < source.length() && std::isdigit(static_cast<unsigned char>(source[i + 1])))) {
                 size_t start = i;
-                while (i < source.length() && (std::isdigit(source[i]) || source[i] == '.' || source[i] == 'e' || source[i] == 'E' || source[i] == 'x' || source[i] == 'X')) {
+                size_t startColumn = column; // ФИКС
+                while (i < source.length() && (
+                           std::isdigit(static_cast<unsigned char>(source[i])) ||
+                           source[i] == '.' ||
+                           source[i] == 'e' || source[i] == 'E' ||
+                           source[i] == 'x' || source[i] == 'X' ||
+                           (source[i] >= 'a' && source[i] <= 'f') || // ФИКС: hex-цифры a-f
+                           (source[i] >= 'A' && source[i] <= 'F')    // ФИКС: hex-цифры A-F
+                       )) {
                     i++;
                     column++;
                 }
-                tokens.emplace_back(TokenType::NUMBER, source.substr(start, i - start), line, column);
+                tokens.emplace_back(TokenType::NUMBER, source.substr(start, i - start), line, startColumn);
                 continue;
             }
-            
+
             // Operators (check multi-char first)
             static const std::vector<std::string> multiOps = {
-                "->", "::", "==", "!=", "<=", ">=", "&&", "||", "++", "--", "+=", "-=", "*=", "/=", "%=", "<<", ">>", "<<=", ">>="
+                "->", "::", "==", "!=", "<=", ">=", "&&", "||", "++", "--",
+                "+=", "-=", "*=", "/=", "%=", "<<", ">>", "<<=", ">>="
             };
             bool foundMulti = false;
             for (const auto& op : multiOps) {
@@ -144,7 +163,7 @@ public:
                 }
             }
             if (foundMulti) continue;
-            
+
             // Single char operators
             static const std::string singleOps = "+-*/%=!&|^~<>";
             if (singleOps.find(source[i]) != std::string::npos) {
@@ -153,7 +172,7 @@ public:
                 column++;
                 continue;
             }
-            
+
             // Brackets
             if (source[i] == '(' || source[i] == '[' || source[i] == '{') {
                 tokens.emplace_back(TokenType::BRACKET_OPEN, std::string(1, source[i]), line, column);
@@ -167,7 +186,7 @@ public:
                 column++;
                 continue;
             }
-            
+
             // Delimiters
             if (source[i] == ';' || source[i] == ',' || source[i] == ':' || source[i] == '.') {
                 tokens.emplace_back(TokenType::DELIMITER, std::string(1, source[i]), line, column);
@@ -175,29 +194,30 @@ public:
                 column++;
                 continue;
             }
-            
+
             // Identifiers and keywords
-            if (std::isalpha(source[i]) || source[i] == '_') {
+            if (std::isalpha(static_cast<unsigned char>(source[i])) || source[i] == '_') {
                 size_t start = i;
-                while (i < source.length() && (std::isalnum(source[i]) || source[i] == '_')) {
+                size_t startColumn = column; // ФИКС
+                while (i < source.length() && (std::isalnum(static_cast<unsigned char>(source[i])) || source[i] == '_')) {
                     i++;
                     column++;
                 }
                 std::string word = source.substr(start, i - start);
                 TokenType type = isKeyword(word) ? TokenType::KEYWORD : TokenType::IDENTIFIER;
-                tokens.emplace_back(type, word, line, column);
+                tokens.emplace_back(type, word, line, startColumn);
                 continue;
             }
-            
+
             // Unknown
             tokens.emplace_back(TokenType::UNKNOWN, std::string(1, source[i]), line, column);
             i++;
             column++;
         }
-        
+
         return tokens;
     }
-    
+
 private:
     bool isKeyword(const std::string& word) {
         static const std::vector<std::string> keywords = {
