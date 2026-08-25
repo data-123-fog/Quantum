@@ -7,6 +7,8 @@
 #include <chrono>
 #include <iomanip>
 #include <filesystem>
+#include <vector>
+#include <cstdint>
 
 namespace System {
 
@@ -15,7 +17,7 @@ public:
     std::string logicPath;
     std::string logsPath;
     
-    Logger(const std::string& basePath = "Logic-Intelligence") {
+    explicit Logger(const std::string& basePath = "Logic-Intelligence") {
         logicPath = basePath;
         logsPath = basePath + "/Logs";
         std::filesystem::create_directories(logsPath);
@@ -25,7 +27,7 @@ public:
         std::string logFile = logsPath + "/train_logs.txt";
         std::ofstream file(logFile, std::ios::app);
         if (!file.is_open()) {
-            std::cerr << "ERROR: Cannot open train_logs.txt" << std::endl;
+            std::cerr << "[ERROR] Cannot open train_logs.txt" << std::endl;
             return;
         }
         
@@ -33,7 +35,7 @@ public:
         auto time = std::chrono::system_clock::to_time_t(now);
         
         file << "[" << std::put_time(std::localtime(&time), "%Y-%m-%d %H:%M:%S") << "] ";
-        if (loss >= 0) {
+        if (loss >= 0.0) {
             file << "Loss: " << std::fixed << std::setprecision(6) << loss << " | ";
         }
         file << message << std::endl;
@@ -43,7 +45,7 @@ public:
         std::string logFile = logsPath + "/error_logs.txt";
         std::ofstream file(logFile, std::ios::app);
         if (!file.is_open()) {
-            std::cerr << "ERROR: Cannot open error_logs.txt" << std::endl;
+            std::cerr << "[ERROR] Cannot open error_logs.txt" << std::endl;
             return;
         }
         
@@ -58,16 +60,16 @@ public:
         std::string path = logicPath + "/" + filename;
         std::ofstream file(path, std::ios::binary);
         if (!file.is_open()) {
-            std::cerr << "ERROR: Cannot save weights to " << path << std::endl;
+            std::cerr << "[ERROR] Cannot save weights to " << path << std::endl;
             return;
         }
         
-        // Портируемый формат: фиксированный uint64_t + double[]
         uint64_t size = static_cast<uint64_t>(weights.size());
         file.write(reinterpret_cast<const char*>(&size), sizeof(size));
-        file.write(reinterpret_cast<const char*>(weights.data()), size * sizeof(double));
+        file.write(reinterpret_cast<const char*>(weights.data()), static_cast<std::streamsize>(size * sizeof(double)));
+        
         if (!file) {
-            std::cerr << "ERROR: Failed to write weights" << std::endl;
+            std::cerr << "[ERROR] Failed to write weights" << std::endl;
         }
     }
     
@@ -81,17 +83,17 @@ public:
         
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open()) {
-            std::cerr << "ERROR: Cannot load weights from " << path << std::endl;
+            std::cerr << "[ERROR] Cannot load weights from " << path << std::endl;
             return weights;
         }
         
-        uint64_t size;
+        uint64_t size = 0;
         file.read(reinterpret_cast<char*>(&size), sizeof(size));
         weights.resize(static_cast<size_t>(size));
-        file.read(reinterpret_cast<char*>(weights.data()), size * sizeof(double));
+        file.read(reinterpret_cast<char*>(weights.data()), static_cast<std::streamsize>(size * sizeof(double)));
         
         if (!file) {
-            std::cerr << "ERROR: Failed to read weights" << std::endl;
+            std::cerr << "[ERROR] Failed to read weights" << std::endl;
             weights.clear();
         }
         
@@ -102,13 +104,30 @@ public:
         std::string path = logicPath + "/" + filename;
         std::ofstream file(path, std::ios::binary);
         if (!file.is_open()) {
-            std::cerr << "ERROR: Cannot save state graph to " << path << std::endl;
+            std::cerr << "[ERROR] Cannot save state graph to " << path << std::endl;
             return;
         }
-        file.write(data.data(), data.size());
+        file.write(data.data(), static_cast<std::streamsize>(data.size()));
         if (!file) {
-            std::cerr << "ERROR: Failed to write state graph" << std::endl;
+            std::cerr << "[ERROR] Failed to write state graph" << std::endl;
         }
+    }
+    
+    std::string loadStateGraph(const std::string& filename = "state_graph.dat") {
+        std::string path = logicPath + "/" + filename;
+        if (!std::filesystem::exists(path)) {
+            return "";
+        }
+        
+        std::ifstream file(path, std::ios::binary);
+        if (!file.is_open()) {
+            std::cerr << "[ERROR] Cannot load state graph from " << path << std::endl;
+            return "";
+        }
+        
+        std::string data((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
+        return data;
     }
 };
 
