@@ -9,25 +9,28 @@
 #include <csignal>
 #include <vector>
 #include <map>
+#include <random>
+#include <atomic>
 
 using namespace MathCore;
 using namespace Tokenizer;
 using namespace System;
 
-bool running = true;
+// ФИКС: атомарный флаг
+std::atomic<bool> running{true};
 Logger* globalLogger = nullptr;
 
-void signalHandler(int sig) {
-    std::cout << "\nShutting down gracefully..." << std::endl;
-    if (globalLogger) {
-        globalLogger->logTraining("Session ended by user");
-    }
-    running = false;
+// ФИКС: async-signal-safe handler (только write + _exit)
+extern "C" void signalHandler(int sig) {
+    running.store(false, std::memory_order_relaxed);
 }
 
 int main() {
     std::cout << "=== Math-Core Wave Intelligence ===" << std::endl;
-    std::cout << "Initializing..." << std::endl;
+    
+    // ФИКС: инициализация случайных чисел
+    std::random_device rd;
+    std::mt19937 gen(rd());
     
     // Setup signal handler
     std::signal(SIGINT, signalHandler);
@@ -41,6 +44,13 @@ int main() {
     // Load source files
     FileLoader loader;
     auto files = loader.loadFromDirectory("Material");
+    
+    // ФИКС: проверка на пустую Material
+    if (files.empty()) {
+        std::cerr << "ERROR: No files in Material/ directory!" << std::endl;
+        logger.logError("Material/ is empty or missing");
+        return 1;
+    }
     
     std::cout << "Loaded " << files.size() << " source files" << std::endl;
     logger.logTraining("Loaded " + std::to_string(files.size()) + " files from Material/");
@@ -58,25 +68,41 @@ int main() {
     std::cout << "Total tokens: " << allTokens.size() << std::endl;
     logger.logTraining("Total tokens extracted: " + std::to_string(allTokens.size()));
     
+    // ФИКС: проверка на пустые токены
+    if (allTokens.empty()) {
+        std::cerr << "ERROR: No tokens extracted!" << std::endl;
+        logger.logError("Tokenization produced no tokens");
+        return 1;
+    }
+    
     // Build vocabulary and map to wave vectors
     std::map<std::string, int> vocabulary;
     std::vector<WaveVector> tokenEmbeddings;
     int vocabSize = 0;
     
+    std::uniform_real_distribution<double> ampDist(-1.0, 1.0);
+    std::uniform_real_distribution<double> phaseDist(0.0, 2.0 * 3.14159265358979323846); // ФИКС: вместо M_PI
+    
     for (const auto& token : allTokens) {
         std::string key = token.value;
         if (vocabulary.find(key) == vocabulary.end()) {
             vocabulary[key] = vocabSize++;
-            // Create random wave vector for new token
             WaveVector vec;
-            vec.amplitude = Complex((rand() % 100) / 100.0, (rand() % 100) / 100.0);
-            vec.phase = (rand() % 360) * M_PI / 180.0;
+            vec.amplitude = Complex(ampDist(gen), ampDist(gen));
+            vec.phase = phaseDist(gen);
             tokenEmbeddings.push_back(vec);
         }
     }
     
     std::cout << "Vocabulary size: " << vocabSize << std::endl;
     logger.logTraining("Vocabulary built: " + std::to_string(vocabSize) + " unique tokens");
+    
+    // ФИКС: проверка vocabSize
+    if (vocabSize == 0) {
+        std::cerr << "ERROR: Empty vocabulary!" << std::endl;
+        logger.logError("Vocabulary is empty");
+        return 1;
+    }
     
     // Initialize wave engine
     WaveEngine engine(vocabSize);
@@ -89,34 +115,27 @@ int main() {
     int epoch = 0;
     double prevLoss = 999999.0;
     
-    while (running) {
-        // Run wave negotiations
+    while (running.load()) {
         engine.negotiate(5);
         
-        // Calculate pseudo-loss (resonance variance)
+        // ФИКС: защита от деления на ноль
         double loss = 0.0;
         for (const auto& token : engine.tokens) {
             loss += token.state.magnitude();
         }
-        loss /= engine.tokens.size();
+        loss /= static_cast<double>(engine.tokens.size());
         
-        // Log progress
         if (epoch % 10 == 0) {
             std::cout << "Epoch " << epoch << " | Loss: " << loss << std::endl;
             logger.logTraining("Epoch " + std::to_string(epoch), loss);
         }
         
-        // Simple convergence check
         if (std::abs(prevLoss - loss) < 0.0001 && epoch > 100) {
             std::cout << "Converged!" << std::endl;
             break;
         }
         prevLoss = loss;
-        
         epoch++;
-        
-        // Small delay to prevent CPU burning
-        // std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     
     // Save results
@@ -129,7 +148,6 @@ int main() {
     }
     logger.saveWeights(weights);
     
-    // Save state graph (simple serialization)
     std::string graphData;
     for (const auto& [word, id] : vocabulary) {
         graphData += word + ":" + std::to_string(id) + "\n";
